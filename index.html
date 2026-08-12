@@ -1,0 +1,641 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Agregador Eleitoral - Central de Dados</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/echarts-gl@2.0.9/dist/echarts-gl.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto+Condensed:wght@400;700&display=swap" rel="stylesheet">
+
+    <style>
+        body {
+            font-family: 'Roboto Condensed', sans-serif;
+            background-color: #2f2f45;
+        }
+
+        @keyframes fullscreenEnter {
+            0% { opacity: 0; transform: scale(0.97); }
+            100% { opacity: 1; transform: scale(1); }
+        }
+
+        :fullscreen {
+            background-color: white !important;
+            overflow: hidden !important;
+            display: flex;
+            flex-direction: column;
+            padding-top: 64px !important;
+            padding-bottom: 16px !important;
+            padding-left: 16px !important;
+            padding-right: 16px !important;
+            animation: fullscreenEnter 0.5s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+        }
+
+        :fullscreen > div[id^="chart-"] {
+            flex: 1 !important;
+            height: 0 !important;
+            min-height: 0 !important;
+        }
+
+        ::backdrop {
+            background-color: white !important;
+        }
+
+        select {
+            text-align-last: center;
+        }
+
+        select option {
+            background-color: #2f2f45;
+            color: #ffffff;
+            text-align: center;
+            font-weight: bold;
+        }
+
+        .map-label-sigla {
+            background: transparent;
+            border: none;
+            box-shadow: none;
+            color: #fff;
+            font-weight: bold;
+            text-shadow: 1px 1px 2px #000, -1px -1px 2px #000, 1px -1px 2px #000, -1px 1px 2px #000;
+            font-size: 11px;
+        }
+
+        .legend-mapa {
+            background: white;
+            padding: 10px;
+            border-radius: 5px;
+            box-shadow: 0 1px 5px rgba(0, 0, 0, 0.4);
+            font-size: 12px;
+            line-height: 18px;
+            color: #333;
+        }
+
+        .legend-mapa h4 {
+            margin: 0 0 5px 0;
+            font-weight: bold;
+            font-size: 13px;
+        }
+
+        .legend-mapa i {
+            width: 18px;
+            height: 18px;
+            float: left;
+            margin-right: 8px;
+            opacity: 0.9;
+        }
+
+
+
+
+        /* Legenda customizada (HTML), controlada por AvaliacaoApp/PresidenciaApp */
+        .legenda-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 10px;
+            border-radius: 999px;
+            border: 2px solid transparent;
+            background-color: #f1f5f9;
+            color: #334155;
+            font-family: 'Roboto Condensed', sans-serif;
+            font-size: 13px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.15s ease;
+            user-select: none;
+        }
+
+        .legenda-pill:hover {
+            background-color: #e2e8f0;
+            transform: translateY(-1px);
+        }
+
+        .legenda-pill:active {
+            transform: scale(0.95);
+        }
+
+        /* Estado "desligado": candidato oculto no gráfico */
+        .legenda-pill.inativo {
+            opacity: 0.35;
+            background-color: transparent;
+            transform: scale(0.98);
+            filter: grayscale(100%);
+        }
+
+        .legenda-pill .legenda-marker {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            display: inline-block;
+            flex-shrink: 0;
+        }
+
+        
+
+        #container-chart-presidencia:fullscreen .apexcharts-tooltip,
+        #container-chart-avaliacao:fullscreen .apexcharts-tooltip {
+            transform: scale(1.6) translateY(-20px);
+            transform-origin: bottom center;
+            pointer-events: none;
+        }
+
+        /* Legenda customizada também aumenta em tela cheia */
+        #container-chart-presidencia:fullscreen .legenda-pill,
+        #container-chart-avaliacao:fullscreen .legenda-pill {
+            font-size: 16px;
+            padding: 6px 14px;
+        }
+
+        #container-chart-presidencia:fullscreen .legenda-marker,
+        #container-chart-avaliacao:fullscreen .legenda-marker {
+            width: 14px;
+            height: 14px;
+        }
+
+        @keyframes fadeInScale {
+            from {
+                opacity: 0;
+                transform: scale(0.95) translateY(-5px);
+            }
+
+            to {
+                opacity: 1;
+                transform: scale(1) translateY(0);
+            }
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+            }
+
+            to {
+                opacity: 1;
+            }
+        }
+
+        .animate-dropdown {
+            animation: fadeInScale 0.2s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+        }
+
+        .animate-fade {
+            animation: fadeIn 0.3s ease forwards;
+        }
+    </style>
+</head>
+
+<body class="text-slate-100 min-h-screen flex flex-col items-center">
+
+    <!-- Loader Inicial -->
+    <div id="initial-loader"
+        class="fixed inset-0 z-50 flex flex-col items-center justify-center bg-[#1e1e2d] transition-opacity duration-500">
+        <div
+            class="w-16 h-16 border-4 border-slate-600 border-t-white rounded-full animate-spin mb-4 shadow-[0_0_15px_rgba(255,255,255,0.2)]">
+        </div>
+        <h2 class="text-white text-xl font-bold font-['Roboto_Condensed'] animate-pulse">Carregando dados...</h2>
+    </div>
+
+    <header class="w-full max-w-6xl p-6 flex flex-col items-center">
+        <div class="flex justify-center mb-8">
+            <div class="bg-[#232336] rounded-full p-1 flex shadow-lg border border-slate-600/50 gap-1">
+                <button id="btn-tab-presidencia"
+                    class="bg-white text-[#2f2f45] rounded-full px-8 py-2 font-bold shadow transition-all">Presidência</button>
+                <button id="btn-tab-governo"
+                    class="text-white hover:bg-white/10 rounded-full px-8 py-2 font-bold transition-all">Governo</button>
+                <button id="btn-tab-senado"
+                    class="text-white hover:bg-white/10 rounded-full px-8 py-2 font-bold transition-all">Senado</button>
+                <button id="btn-tab-comparativo"
+                    class="text-white hover:bg-white/10 rounded-full px-8 py-2 font-bold transition-all">Projeção de
+                    Votos</button>
+            </div>
+        </div>
+        <h1 id="main-title" class="text-3xl font-bold text-white mb-8">Intenção de Voto 2026</h1>
+        <p id="main-subtitle" class="text-white/80 -mt-6 mb-8 text-center hidden">Votos válidos projetados em comparação com votos válidos oficiais dos candidatos em 2022.</p>
+    </header>
+
+    <main class="w-full max-w-6xl px-4 pb-10">
+        <div id="app-presidencia" class="flex flex-col gap-6">
+            <div class="flex gap-6 mb-2">
+                <div class="flex-1">
+                    <label class="block text-sm font-bold text-slate-300 mb-1 text-center">Turno:</label>
+                    <select id="select-turno"
+                        class="w-full bg-transparent border border-slate-400 rounded p-2 text-white outline-none focus:border-white appearance-none cursor-pointer"></select>
+                </div>
+                <div class="flex-1">
+                    <label class="block text-sm font-bold text-slate-300 mb-1 text-center">Cenário:</label>
+                    <select id="select-cenario"
+                        class="w-full bg-transparent border border-slate-400 rounded p-2 text-white outline-none focus:border-white appearance-none cursor-pointer"></select>
+                </div>
+                <div class="flex-1">
+                    <label class="block text-sm font-bold text-slate-300 mb-1 text-center">Instituto:</label>
+                    <select id="select-instituto"
+                        class="w-full bg-transparent border border-slate-400 rounded p-2 text-white outline-none focus:border-white appearance-none cursor-pointer"></select>
+                </div>
+            </div>
+
+            <div class="bg-white rounded-lg shadow-xl px-4 pb-4 pt-16 relative" id="container-chart-presidencia">
+                
+                <button onclick="toggleFullscreen('container-chart-presidencia')"
+                    class="absolute top-4 left-4 text-slate-400 hover:text-slate-800 z-10 flex items-center gap-1 font-bold text-sm bg-slate-100 hover:bg-slate-200 px-3 py-1.5 rounded transition-colors shadow-sm"
+                    title="Tela Cheia">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4">
+                        </path>
+                    </svg>
+                    Tela Cheia
+                </button>
+                <div class="absolute top-4 right-4 z-20 flex items-center gap-2">
+                    <button onclick="triggerEchartsTool('presidencia', 'dataZoom')" class="text-slate-400 hover:text-slate-800 bg-slate-100 hover:bg-slate-200 p-2 rounded transition-colors shadow-sm" title="Zoom da Área">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                    </button>
+                    <button onclick="triggerEchartsTool('presidencia', 'restore')" class="text-slate-400 hover:text-slate-800 bg-slate-100 hover:bg-slate-200 p-2 rounded transition-colors shadow-sm" title="Restaurar Zoom">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+                    </button>
+                    <button onclick="triggerEchartsTool('presidencia', 'saveAsImage')" class="text-slate-400 hover:text-slate-800 bg-slate-100 hover:bg-slate-200 p-2 rounded transition-colors shadow-sm" title="Salvar Imagem">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+                    </button>
+                </div>
+                <div id="legenda-presidencia" class="flex flex-wrap gap-2 justify-center mb-4"></div>
+                <div id="chart-presidencia" class="w-full relative z-0" style="height: 550px;"></div>
+            </div>
+
+            <!-- MAPA DA PRESIDÊNCIA (NOVO) -->
+            <h2 class="text-2xl font-bold text-white mt-8 mb-4 text-center">Mapa de Intenção de Votos por Estado</h2>
+            <div class="bg-white rounded-lg shadow-xl px-4 pb-4 pt-16 relative" id="container-mapa-presidencia">
+                
+                <button onclick="toggleFullscreen('container-mapa-presidencia')"
+                    class="absolute top-4 left-4 text-slate-400 hover:text-slate-800 z-10 flex items-center gap-1 font-bold text-sm bg-slate-100 hover:bg-slate-200 px-3 py-1.5 rounded transition-colors shadow-sm"
+                    title="Tela Cheia">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4">
+                        </path>
+                    </svg>
+                    Tela Cheia
+                </button>
+                <div id="chart-mapa-presidencia" class="w-full relative z-0" style="height: 550px;"></div>
+            </div>
+            <!-- FIM MAPA DA PRESIDÊNCIA -->
+
+            <h2 class="text-2xl font-bold text-white mt-8 text-center">Avaliação do Governo</h2>
+            <div class="bg-white rounded-lg shadow-xl px-4 pb-4 pt-16 relative" id="container-chart-avaliacao">
+                
+                <button onclick="toggleFullscreen('container-chart-avaliacao')"
+                    class="absolute top-4 left-4 text-slate-400 hover:text-slate-800 z-10 flex items-center gap-1 font-bold text-sm bg-slate-100 hover:bg-slate-200 px-3 py-1.5 rounded transition-colors shadow-sm"
+                    title="Tela Cheia">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4">
+                        </path>
+                    </svg>
+                    Tela Cheia
+                </button>
+                <div class="absolute top-4 right-4 z-20 flex items-center gap-2">
+                    <button onclick="triggerEchartsTool('avaliacao', 'dataZoom')" class="text-slate-400 hover:text-slate-800 bg-slate-100 hover:bg-slate-200 p-2 rounded transition-colors shadow-sm" title="Zoom da Área">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                    </button>
+                    <button onclick="triggerEchartsTool('avaliacao', 'restore')" class="text-slate-400 hover:text-slate-800 bg-slate-100 hover:bg-slate-200 p-2 rounded transition-colors shadow-sm" title="Restaurar Zoom">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+                    </button>
+                    <button onclick="triggerEchartsTool('avaliacao', 'saveAsImage')" class="text-slate-400 hover:text-slate-800 bg-slate-100 hover:bg-slate-200 p-2 rounded transition-colors shadow-sm" title="Salvar Imagem">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+                    </button>
+                </div>
+                <div id="legenda-avaliacao" class="flex flex-wrap gap-2 justify-center mb-4"></div>
+                <div id="chart-avaliacao" class="w-full relative z-0" style="height: 480px;"></div>
+            </div>
+        </div>
+
+        <div id="app-governo" class="hidden flex-col gap-6">
+            <div class="flex gap-6 mb-2">
+                <div class="flex-1">
+                    <label class="block text-sm font-bold text-slate-300 mb-1 text-center">Estado:</label>
+                    <select id="select-estado-gov"
+                        class="w-full bg-transparent border border-slate-400 rounded p-2 text-white outline-none focus:border-white appearance-none cursor-pointer"></select>
+                </div>
+                <div class="flex-1">
+                    <label class="block text-sm font-bold text-slate-300 mb-1 text-center">Instituto:</label>
+                    <select id="select-instituto-gov"
+                        class="w-full bg-transparent border border-slate-400 rounded p-2 text-white outline-none focus:border-white appearance-none cursor-pointer"></select>
+                </div>
+                <div class="flex-1">
+                    <label class="block text-sm font-bold text-slate-300 mb-1 text-center">Cenário:</label>
+                    <select id="select-cenario-gov"
+                        class="w-full bg-transparent border border-slate-400 rounded p-2 text-white outline-none focus:border-white appearance-none cursor-pointer"></select>
+                </div>
+                <div class="flex-1">
+                    <label class="block text-sm font-bold text-slate-300 mb-1 text-center">Turno:</label>
+                    <select id="select-turno-gov"
+                        class="w-full bg-transparent border border-slate-400 rounded p-2 text-white outline-none focus:border-white appearance-none cursor-pointer"></select>
+                </div>
+            </div>
+
+            <div class="bg-white rounded-lg shadow-xl px-4 pb-4 pt-16 relative" id="container-chart-governador">
+                
+                <button onclick="toggleFullscreen('container-chart-governador')"
+                    class="absolute top-4 left-4 text-slate-400 hover:text-slate-800 z-10 flex items-center gap-1 font-bold text-sm bg-slate-100 hover:bg-slate-200 px-3 py-1.5 rounded transition-colors shadow-sm"
+                    title="Tela Cheia">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4">
+                        </path>
+                    </svg>
+                    Tela Cheia
+                </button>
+                <div class="absolute top-4 right-4 z-20 flex items-center gap-2">
+                    <button onclick="triggerEchartsTool('governador', 'dataZoom')" class="text-slate-400 hover:text-slate-800 bg-slate-100 hover:bg-slate-200 p-2 rounded transition-colors shadow-sm" title="Zoom da Área">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                    </button>
+                    <button onclick="triggerEchartsTool('governador', 'restore')" class="text-slate-400 hover:text-slate-800 bg-slate-100 hover:bg-slate-200 p-2 rounded transition-colors shadow-sm" title="Restaurar Zoom">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+                    </button>
+                    <button onclick="triggerEchartsTool('governador', 'saveAsImage')" class="text-slate-400 hover:text-slate-800 bg-slate-100 hover:bg-slate-200 p-2 rounded transition-colors shadow-sm" title="Salvar Imagem">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+                    </button>
+                </div>
+                <div id="legenda-governador" class="flex flex-wrap gap-2 justify-center mb-4"></div>
+                <div id="chart-governador" class="w-full relative z-0" style="height: 550px;"></div>
+            </div>
+        </div>
+        <div id="app-senado" class="hidden flex-col gap-6">
+            <div class="flex gap-6 mb-2">
+                <div class="flex-1">
+                    <label class="block text-sm font-bold text-slate-300 mb-1 text-center">Estado:</label>
+                    <select id="select-estado-sen"
+                        class="w-full bg-transparent border border-slate-400 rounded p-2 text-white outline-none focus:border-white appearance-none cursor-pointer"></select>
+                </div>
+                <div class="flex-1">
+                    <label class="block text-sm font-bold text-slate-300 mb-1 text-center">Instituto:</label>
+                    <select id="select-instituto-sen"
+                        class="w-full bg-transparent border border-slate-400 rounded p-2 text-white outline-none focus:border-white appearance-none cursor-pointer"></select>
+                </div>
+                <div class="flex-1">
+                    <label class="block text-sm font-bold text-slate-300 mb-1 text-center">Cenário:</label>
+                    <select id="select-cenario-sen"
+                        class="w-full bg-transparent border border-slate-400 rounded p-2 text-white outline-none focus:border-white appearance-none cursor-pointer"></select>
+                </div>
+                <div class="flex-1">
+                    <label class="block text-sm font-bold text-slate-300 mb-1 text-center">Turno:</label>
+                    <select id="select-turno-sen"
+                        class="w-full bg-transparent border border-slate-400 rounded p-2 text-white outline-none focus:border-white appearance-none cursor-pointer"></select>
+                </div>
+            </div>
+
+            <div class="bg-white rounded-lg shadow-xl px-4 pb-4 pt-16 relative" id="container-chart-senado">
+                
+                <button onclick="toggleFullscreen('container-chart-senado')"
+                    class="absolute top-4 left-4 text-slate-400 hover:text-slate-800 z-10 flex items-center gap-1 font-bold text-sm bg-slate-100 hover:bg-slate-200 px-3 py-1.5 rounded transition-colors shadow-sm"
+                    title="Tela Cheia">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4">
+                        </path>
+                    </svg>
+                    Tela Cheia
+                </button>
+                <div class="absolute top-4 right-4 z-20 flex items-center gap-2">
+                    <button onclick="triggerEchartsTool('senado', 'dataZoom')" class="text-slate-400 hover:text-slate-800 bg-slate-100 hover:bg-slate-200 p-2 rounded transition-colors shadow-sm" title="Zoom da Área">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                    </button>
+                    <button onclick="triggerEchartsTool('senado', 'restore')" class="text-slate-400 hover:text-slate-800 bg-slate-100 hover:bg-slate-200 p-2 rounded transition-colors shadow-sm" title="Restaurar Zoom">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+                    </button>
+                    <button onclick="triggerEchartsTool('senado', 'saveAsImage')" class="text-slate-400 hover:text-slate-800 bg-slate-100 hover:bg-slate-200 p-2 rounded transition-colors shadow-sm" title="Salvar Imagem">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+                    </button>
+                </div>
+                <div id="legenda-senado" class="flex flex-wrap gap-2 justify-center mb-4"></div>
+                <div id="chart-senado" class="w-full relative z-0" style="height: 550px;"></div>
+            </div>
+        </div>
+
+        <div id="app-comparativo" class="hidden flex-col gap-6">
+            <div class="bg-white rounded-lg shadow-xl px-2 py-4 relative" id="container-comparativo">
+                <div id="comparativo-table-container"></div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Tela de Carregamento para Troca de Abas -->
+    <div id="tab-loader"
+        class="fixed inset-0 bg-[#2f2f45] z-[9999] flex flex-col items-center justify-center hidden opacity-0 transition-opacity duration-300">
+        <div class="animate-spin rounded-full h-16 w-16 border-t-4 border-b-4 border-white mb-4"></div>
+        <h2 class="text-white text-2xl font-bold font-['Roboto_Condensed'] animate-pulse">Processando dados...</h2>
+    </div>
+
+    <!-- Bibliotecas Necessárias -->
+    <script src="dataService.js?v=16"></script>
+    <script src="presidenciaApp.js?v=16"></script>
+    <script src="avaliacaoApp.js?v=16"></script>
+    <script src="governadorApp.js?v=16"></script>
+    <script src="senadorApp.js?v=16"></script>
+    <script src="mapa.js?v=16"></script>
+    <script src="comparativoApp.js?v=16"></script>
+
+    <script>
+        let lastScrollY = 0;
+
+        function toggleDropdown(menuId) {
+            const menu = document.getElementById(menuId);
+            if (menu.classList.contains('hidden')) {
+                menu.classList.remove('hidden');
+                menu.classList.add('animate-dropdown');
+            } else {
+                menu.classList.add('hidden');
+                menu.classList.remove('animate-dropdown');
+            }
+        }
+
+        function triggerApexTool(chartType, toolName) {
+            const container = document.getElementById(`container-chart-${chartType}`);
+            const icon = container.querySelector(`.apexcharts-${toolName}-icon`);
+            if (icon) icon.click();
+            document.getElementById(`menu-tools-${chartType}`).classList.add('hidden');
+            document.getElementById(`menu-tools-${chartType}`).classList.remove('animate-dropdown');
+        }
+
+        
+        function triggerEchartsTool(chartType, action) {
+            let containerId = 'chart-' + chartType;
+            let dom = document.getElementById(containerId);
+            let chart = echarts.getInstanceByDom(dom);
+            if (!chart) return;
+            
+            if (action === 'dataZoom') {
+                chart.dispatchAction({ type: 'takeGlobalCursor', key: 'dataZoomSelect', dataZoomSelectActive: true });
+            } else if (action === 'restore') {
+                chart.dispatchAction({ type: 'restore' });
+            } else if (action === 'saveAsImage') {
+                const url = chart.getDataURL({ type: 'png', backgroundColor: '#fff', pixelRatio: 2 });
+                const a = document.createElement('a');
+                a.download = 'agregador_' + chartType + '.png';
+                a.href = url;
+                a.click();
+            }
+        }
+
+        function toggleFullscreen(containerId) {
+            const elem = document.getElementById(containerId);
+            if (!document.fullscreenElement) {
+                lastScrollY = window.scrollY;
+                elem.requestFullscreen().catch(err => console.log(err));
+            } else {
+                document.exitFullscreen();
+            }
+        }
+
+        document.addEventListener('fullscreenchange', () => {
+            const fsElement = document.fullscreenElement;
+            const isFull = !!fsElement;
+
+            if (typeof PresidenciaApp !== 'undefined' && PresidenciaApp.chartInstance) {
+                const isThisFull = isFull && fsElement.id === 'container-chart-presidencia';
+                const chartDom = document.getElementById('chart-presidencia');
+                chartDom.style.height = isThisFull ? 'calc(100vh - 40px)' : '550px';
+
+                PresidenciaApp.chartInstance.setOption({
+                    xAxis: { axisLabel: { fontSize: isThisFull ? 18 : 13 } },
+                    yAxis: { axisLabel: { fontSize: isThisFull ? 20 : 14 } }
+                });
+                PresidenciaApp.chartInstance.resize();
+            }
+
+            if (typeof AvaliacaoApp !== 'undefined' && AvaliacaoApp.chartInstance) {
+                const isThisFull = isFull && fsElement.id === 'container-chart-avaliacao';
+                const chartDom = document.getElementById('chart-avaliacao');
+                chartDom.style.height = isThisFull ? 'calc(100vh - 40px)' : '480px';
+
+                AvaliacaoApp.chartInstance.setOption({
+                    xAxis: { axisLabel: { fontSize: isThisFull ? 18 : 13 } },
+                    yAxis: { axisLabel: { fontSize: isThisFull ? 20 : 14 } }
+                });
+                AvaliacaoApp.chartInstance.resize();
+            }
+
+            if (typeof MapaApp !== 'undefined' && MapaApp.chart) {
+                const isThisFull = isFull && fsElement.id === 'container-mapa-presidencia';
+                const chartDom = document.getElementById('chart-mapa-presidencia');
+                chartDom.style.height = isThisFull ? 'calc(100vh - 40px)' : '550px';
+                MapaApp.chart.resize();
+            }
+
+            if (typeof GovernadorApp !== 'undefined' && GovernadorApp.chartInstance) {
+                const isThisFull = isFull && fsElement.id === 'container-chart-governador';
+                const chartDom = document.getElementById('chart-governador');
+                chartDom.style.height = isThisFull ? 'calc(100vh - 40px)' : '550px';
+
+                GovernadorApp.chartInstance.setOption({
+                    xAxis: { axisLabel: { fontSize: isThisFull ? 18 : 13 } },
+                    yAxis: { axisLabel: { fontSize: isThisFull ? 20 : 14 } }
+                });
+                GovernadorApp.chartInstance.resize();
+            }
+
+            if (typeof SenadorApp !== 'undefined' && SenadorApp.chartInstance) {
+                const isThisFull = isFull && fsElement.id === 'container-chart-senado';
+                const chartDom = document.getElementById('chart-senado');
+                chartDom.style.height = isThisFull ? 'calc(100vh - 40px)' : '550px';
+
+                SenadorApp.chartInstance.setOption({
+                    xAxis: { axisLabel: { fontSize: isThisFull ? 18 : 13 } },
+                    yAxis: { axisLabel: { fontSize: isThisFull ? 20 : 14 } }
+                });
+                SenadorApp.chartInstance.resize();
+            }
+
+            if (!isFull) {
+                setTimeout(() => { window.scrollTo(0, lastScrollY); }, 100);
+            }
+        });
+
+        window.addEventListener('resize', () => {
+            if (typeof PresidenciaApp !== 'undefined' && PresidenciaApp.chartInstance) PresidenciaApp.chartInstance.resize();
+            if (typeof AvaliacaoApp !== 'undefined' && AvaliacaoApp.chartInstance) AvaliacaoApp.chartInstance.resize();
+            if (typeof MapaApp !== 'undefined' && MapaApp.chart) MapaApp.chart.resize();
+            if (typeof GovernadorApp !== 'undefined' && GovernadorApp.chartInstance) GovernadorApp.chartInstance.resize();
+            if (typeof SenadorApp !== 'undefined' && SenadorApp.chartInstance) SenadorApp.chartInstance.resize();
+        });
+
+        document.addEventListener('DOMContentLoaded', async () => {
+            const linkPresidenciaAvaliacao = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRS_mh05CDPD9fdkANE96iS4mh9MTkSH0EUM-0xvfmNcvkbqI1BU-4lrCPRwJdsDFDPV3ZntHE6ZZUR/pub?gid=0&single=true&output=csv';
+            const linkGovernadorSenador = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRsleAjtRKnintxw6friHfZTBL2169jmBQAArFSQKLvJhpPTR2NWhnESi-UDKmubbmZCrOoFF13GOyn/pub?gid=0&single=true&output=csv';
+
+            try {
+                await DataService.carregarDados(linkPresidenciaAvaliacao, linkGovernadorSenador);
+                await DataService.carregarDados2022('https://docs.google.com/spreadsheets/d/e/2PACX-1vRsleAjtRKnintxw6friHfZTBL2169jmBQAArFSQKLvJhpPTR2NWhnESi-UDKmubbmZCrOoFF13GOyn/pub?gid=1224418960&single=true&output=csv');
+
+                PresidenciaApp.init();
+                AvaliacaoApp.init();
+                MapaApp.init();
+                GovernadorApp.init();
+                SenadorApp.init();
+                if (typeof ComparativoApp !== 'undefined') ComparativoApp.init();
+
+                const initialLoader = document.getElementById('initial-loader');
+                if (initialLoader) {
+                    setTimeout(() => {
+                        initialLoader.classList.add('opacity-0');
+                        setTimeout(() => initialLoader.style.display = 'none', 500);
+                    }, 800);
+                }
+
+                const tabs = ['presidencia', 'governo', 'senado', 'comparativo'];
+                tabs.forEach(tab => {
+                    document.getElementById(`btn-tab-${tab}`).addEventListener('click', () => {
+                        const loader = document.getElementById('tab-loader');
+                        loader.classList.remove('hidden');
+                        setTimeout(() => loader.classList.remove('opacity-0'), 10);
+
+                        setTimeout(() => {
+                            tabs.forEach(t => {
+                                document.getElementById(`app-${t}`).classList.add('hidden');
+                                document.getElementById(`app-${t}`).classList.remove('flex', 'animate-fade');
+                                const btn = document.getElementById(`btn-tab-${t}`);
+                                btn.className = "text-white hover:bg-white/10 rounded-full px-8 py-2 font-bold transition-all duration-300";
+                            });
+                            const target = document.getElementById(`app-${tab}`);
+                            target.classList.remove('hidden');
+                            target.classList.add('flex', 'animate-fade');
+                            document.getElementById(`btn-tab-${tab}`).className = "bg-white text-[#2f2f45] rounded-full px-8 py-2 font-bold shadow transition-all duration-300 transform scale-105";
+
+                            // Alterar Título Principal e Subtítulo
+                            if (tab === 'comparativo') {
+                                document.getElementById('main-title').innerText = 'Eleições de 2022 X Eleições de 2026';
+                                document.getElementById('main-subtitle').classList.remove('hidden');
+                            } else {
+                                document.getElementById('main-title').innerText = 'Intenção de Voto 2026';
+                                document.getElementById('main-subtitle').classList.add('hidden');
+                            }
+
+                            // Forçar resize após a div ficar visível
+                            setTimeout(() => {
+                                if (tab === 'presidencia') {
+                                    if (typeof PresidenciaApp !== 'undefined' && PresidenciaApp.chartInstance) PresidenciaApp.chartInstance.resize();
+                                    if (typeof AvaliacaoApp !== 'undefined' && AvaliacaoApp.chartInstance) AvaliacaoApp.chartInstance.resize();
+                                    if (typeof MapaApp !== 'undefined' && MapaApp.chart) MapaApp.chart.resize();
+                                } else if (tab === 'governo') {
+                                    if (typeof GovernadorApp !== 'undefined' && GovernadorApp.chartInstance) GovernadorApp.chartInstance.resize();
+                                } else if (tab === 'senado') {
+                                    if (typeof SenadorApp !== 'undefined' && SenadorApp.chartInstance) SenadorApp.chartInstance.resize();
+                                }
+
+                                loader.classList.add('opacity-0');
+                                setTimeout(() => loader.classList.add('hidden'), 300);
+                            }, 50);
+                        }, 400); // 400ms delay para simular processamento e não travar UI
+                    });
+                });
+            } catch (error) {
+                console.error("Erro ao iniciar a aplicação da Central de Dados:", error);
+            }
+        });
+    </script>
+</body>
+
+</html>
